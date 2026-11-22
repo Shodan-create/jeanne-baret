@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<title>Badminton Coach</title>
+
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#0A2A20" />
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Badminton Coach" />
+
+<style>
+  html, body { margin: 0; padding: 0; background: #0A2A20; min-height: 100%; }
+  #root { min-height: 100vh; }
+  * { -webkit-tap-highlight-color: transparent; }
+</style>
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const IconUndo = ({ size = 14, style }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}><polyline points="9 14 4 9 9 4"></polyline><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"></path></svg>
+);
+const IconReset = ({ size = 14, style }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+);
+const IconChevron = ({ size = 13, style }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={style}><polyline points="9 18 15 12 9 6"></polyline></svg>
+);
+const IconDot = ({ size = 4, style }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" style={style}><circle cx="12" cy="12" r="10" fill="currentColor" /></svg>
+);
+const IconMaximize = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M21 8V5a2 2 0 0 0-2-2h-3"></path><path d="M3 16v3a2 2 0 0 0 2 2h3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path></svg>
+);
+const IconMinimize = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"></path><path d="M21 8h-3a2 2 0 0 1-2-2V3"></path><path d="M3 16h3a2 2 0 0 1 2 2v3"></path><path d="M16 21v-3a2 2 0 0 1 2-2h3"></path></svg>
+);
+
+const { useState, useMemo, useRef, useEffect } = React;
+
+const REASONS = [
+  { id: "serve", label: "Aufschlagfehler", hint: "Netz oder Aus beim Aufschlag" },
+  { id: "clear", label: "Clear zu niedrig / kurz", hint: "Gegner konnte leicht angreifen" },
+  { id: "drop", label: "Drop im Netz", hint: "Stoppball hängen geblieben" },
+  { id: "smash_net", label: "Schmetterball im Netz", hint: "" },
+  { id: "long", label: "Schlag ins Aus", hint: "Clear, Drive oder Smash zu lang/breit" },
+  { id: "net", label: "Netzfehler", hint: "Ballwechsel am Netz verloren" },
+  { id: "unforced", label: "Sonstiger Fehler", hint: "Unerzwungener Fehler" },
+  { id: "opponent", label: "Gegner-Winner", hint: "Kein eigener Fehler – starker Schlag" },
+];
+
+const ZONES = [
+  { id: "z1", label: "Zone 1 – Angriff", short: "Angriff", hint: "Früher Treffpunkt, viel Zeit" },
+  { id: "z2", label: "Zone 2 – Drive", short: "Drive", hint: "Schnelles Treib-/Flachspiel" },
+  { id: "z3", label: "Zone 3 – Verteidigung", short: "Verteidigung", hint: "Nur noch Überleben, unter Druck" },
+];
+
+const SIDES = [
+  { id: "forehand", label: "Vorhand" },
+  { id: "backhand", label: "Rückhand" },
+  { id: "none", label: "Nicht entscheidend" },
+];
+
+// Aufschlag-Bereiche im gegnerischen Aufschlagfeld, aus Sicht des Aufschlägers (nicht zu verwechseln
+// mit den Zonen 1-3 des laufenden Ballwechsels, die erst NACH dem Aufschlag greifen).
+// 1-4 liegen quer in der vorderen Reihe (nah am Netz), 5-6 in der hinteren Reihe (lange Aufschläge).
+// WICHTIG: Aus dem rechten Aufschlagfeld ist 1 außen links / 4 außen rechts – aus dem linken
+// Aufschlagfeld ist es genau andersrum (1 außen rechts / 4 außen links). Die Feldgrafik spiegelt
+// das automatisch, die Nummer bleibt dabei an derselben Art von Ziel (z.B. "1 = kurz, ganz außen").
+const SERVE_ZONES = [
+  { id: "sz1", num: 1, label: "Kurz, ganz außen", hint: "Vorderste Reihe, äußerste Spalte" },
+  { id: "sz2", num: 2, label: "Kurz, Mitte-außen", hint: "Vorderste Reihe, zweite Spalte" },
+  { id: "sz3", num: 3, label: "Kurz, Mitte-Körper", hint: "Vorderste Reihe, dritte Spalte" },
+  { id: "sz4", num: 4, label: "Kurz, ganz außen (Gegenseite)", hint: "Vorderste Reihe, äußerste Spalte – Linie je nach Einzel/Doppel" },
+  { id: "sz5", num: 5, label: "Lang, außen", hint: "Hintere Reihe, äußere Spalte" },
+  { id: "sz6", num: 6, label: "Lang, Mitte/Körper", hint: "Hintere Reihe, innere Spalte" },
+];
+
+const REASON_COLOR = { serve: "#D4A72C", clear: "#5DA3D9", drop: "#8F7FE0", smash_net: "#E0637A", long: "#4FA870", net: "#D98A3D", unforced: "#A9A296", opponent: "#5C6B63" };
+const ZONE_COLOR = { z1: "#4FA870", z2: "#D4A72C", z3: "#E0637A" };
+const SIDE_COLOR = { forehand: "#5DA3D9", backhand: "#D98A3D" };
+const COLORS = { a: "#D9AA3E", b: "#5DA3D9" };
+
+const BREAKDOWNS = {
+  reason: { label: "Grund", items: REASONS, colorMap: REASON_COLOR },
+  zone: { label: "Zone", items: ZONES, colorMap: ZONE_COLOR },
+  side: { label: "Seite", items: SIDES.filter((s) => s.id !== "none"), colorMap: SIDE_COLOR },
+};
+
+const REASON_TIP = {
+  serve: "beim Aufschlag lieber knapp sicher statt riskant knapp am Netz spielen",
+  clear: "dem Clear spürbar mehr Höhe und Tempo mitgeben, damit weniger Angriffsfläche entsteht",
+  drop: "den Drop weicher und kontrollierter statt forciert spielen",
+  smash_net: "beim Schmetterball genauer auf den Kontaktpunkt achten, nicht zu früh oder zu flach treffen",
+  long: "die Länge der Schläge etwas besser dosieren, lieber einen Tick kürzer ansetzen",
+  net: "am Netz ruhiger bleiben und den Ball einen Tick früher abfangen",
+  unforced: "in ruhigen Situationen bewusst etwas fokussierter und kontrollierter spielen",
+};
+
+const CLOSERS = [
+  "Kopf hoch, das kriegst du in den nächsten Ballwechseln locker in den Griff.",
+  "Kleinigkeit, aber genau die macht am Ende den Unterschied – konzentriert bleiben.",
+  "Nicht ärgern, im nächsten Satz einfach bewusst gegensteuern, dann passt's.",
+  "Das lässt sich mit etwas Fokus schnell anpassen – weiter dranbleiben!",
+];
+
+function evaluateSet(a, b, system) {
+  const pointsToWin = system;
+  const cap = system === 21 ? 30 : 22;
+  if (a >= cap || b >= cap) return a > b ? "a" : "b";
+  if ((a >= pointsToWin || b >= pointsToWin) && Math.abs(a - b) >= 2) return a > b ? "a" : "b";
+  return null;
+}
+
+function classify(entry) {
+  if (!entry.zone) return "direct";
+  if (entry.reason === "opponent") return "winner";
+  if (entry.zone === "z3") return "forced";
+  return "unforced";
+}
+
+function emptyTeamStats() {
+  return {
+    total: 0,
+    byReason: Object.fromEntries(REASONS.map((r) => [r.id, 0])),
+    byZone: Object.fromEntries(ZONES.map((z) => [z.id, 0])),
+    bySide: Object.fromEntries(SIDES.filter((s) => s.id !== "none").map((s) => [s.id, 0])),
+    unforced: { total: 0, zone: { z1: 0, z2: 0, z3: 0 }, reason: Object.fromEntries(REASONS.map((r) => [r.id, 0])) },
+    forced: { total: 0, zone: { z1: 0, z2: 0, z3: 0 }, reason: Object.fromEntries(REASONS.map((r) => [r.id, 0])) },
+    direct: { total: 0, reason: Object.fromEntries(REASONS.map((r) => [r.id, 0])) },
+    winnerAgainst: { total: 0, zone: { z1: 0, z2: 0, z3: 0 } },
+    attack: { zone: { z1: 0, z2: 0, z3: 0 } },
+    byPlayer: {},
+    serveStats: Object.fromEntries(SERVE_ZONES.map((z) => [z.id, { count: 0, won: 0, lost: 0 }])),
+  };
+}
+
+function buildTip(ts, label) {
+  const totalErrors = ts.unforced.total + ts.forced.total;
+  if (totalErrors === 0) {
+    return `${label}, richtig stark bisher – noch kein einziger Fehler. Genau so weiterspielen, locker bleiben und dem Gegner keinen Meter schenken.`;
+  }
+  if (ts.unforced.total === 0) {
+    return `${label}, alle bisherigen Punkte gingen nur durch echten Druck vom Gegner verloren, die eigene Technik sitzt richtig gut. Einfach ruhig bleiben und geduldig weiterspielen.`;
+  }
+  const zoneEntries = Object.entries(ts.unforced.zone).filter(([, v]) => v > 0).sort((x, y) => y[1] - x[1]);
+  const [zoneId] = zoneEntries[0];
+  const zoneLabel = ZONES.find((z) => z.id === zoneId)?.short;
+  const reasonEntries = Object.entries(ts.unforced.reason).filter(([, v]) => v > 0).sort((x, y) => y[1] - x[1]);
+  const topReasonId = reasonEntries[0]?.[0];
+  const tipText = REASON_TIP[topReasonId] || "in ruhigen Situationen etwas kontrollierter spielen";
+  const closer = CLOSERS[totalErrors % CLOSERS.length];
+  return `${label}, in der Zone „${zoneLabel}" schleichen sich gerade die meisten kleinen Patzer ein. Am besten hilft: ${tipText}. ${closer}`;
+}
+
+function computeServeErrorRate(teamStats) {
+  const rows = SERVE_ZONES.map((z) => teamStats.serveStats[z.id]);
+  const totalCount = rows.reduce((s, r) => s + r.count, 0);
+  const totalLost = rows.reduce((s, r) => s + r.lost, 0);
+  if (totalCount === 0) return null;
+  return Math.round((totalLost / totalCount) * 100);
+}
+
+function topLossReason(teamStats) {
+  const entries = Object.entries(teamStats.byReason).filter(([, v]) => v > 0).sort((x, y) => y[1] - x[1]);
+  if (!entries.length) return null;
+  const [id, count] = entries[0];
+  return { label: REASONS.find((r) => r.id === id)?.label, count };
+}
+
+function BigStatsBlock({ name, color, teamStats }) {
+  const rate = computeServeErrorRate(teamStats);
+  const top = topLossReason(teamStats);
+  return (
+    <div style={styles.bigStatsCol}>
+      <div style={{ ...styles.bigStatsName, color }}>{name}</div>
+      <div style={styles.bigStatsItem}>
+        <div style={styles.bigStatsValue}>{rate !== null ? `${rate}%` : "–"}</div>
+        <div style={styles.bigStatsLabel}>Aufschlag-Fehlerquote</div>
+      </div>
+      <div style={styles.bigStatsItem}>
+        <div style={styles.bigStatsValueSmall}>{top ? top.label : "–"}</div>
+        <div style={styles.bigStatsLabel}>{top ? `häufigster Punktverlust-Grund (${top.count}×)` : "noch keine Daten"}</div>
+      </div>
+    </div>
+  );
+}
+
+function BadmintonTracker() {
+  const containerRef = useRef(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fsError, setFsError] = useState(null);
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onChange);
+    document.addEventListener("webkitfullscreenchange", onChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onChange);
+      document.removeEventListener("webkitfullscreenchange", onChange);
+    };
+  }, []);
+
+  const toggleFullscreen = async () => {
+    setFsError(null);
+    try {
+      const el = containerRef.current;
+      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        const req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+        if (!req) throw new Error("not supported");
+        await req.call(el);
+      } else {
+        const exit = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+        await exit.call(document);
+      }
+    } catch (e) {
+      setFsError("Vollbild wird in dieser Ansicht gerade blockiert. Die Datei separat öffnen/herunterladen und dort erneut versuchen, dann funktioniert der Button zuverlässig.");
+    }
+  };
+
+  const [phase, setPhase] = useState("setup");
+  const [system, setSystem] = useState(21);
+  const [matchType, setMatchType] = useState("einzel");
+  const teamSize = matchType === "einzel" ? 1 : 2;
+
+  const [names, setNames] = useState({ a: ["Spieler A", "Spieler A2"], b: ["Spieler B", "Spieler B2"] });
+  const teamLabel = (key) => names[key].slice(0, teamSize).filter(Boolean).join(" / ");
+
+  const [initialServer, setInitialServer] = useState("a");
+  const [server, setServer] = useState("a");
+
+  const [sets, setSets] = useState([]);
+  const [current, setCurrent] = useState({ a: 0, b: 0 });
+  const [setWins, setSetWins] = useState({ a: 0, b: 0 });
+  const [log, setLog] = useState([]);
+  const [pausedForSet, setPausedForSet] = useState(null);
+
+  const [step, setStep] = useState("servezone");
+  const [pending, setPending] = useState({ serveZone: null, winner: null, reason: null, zone: null, side: null });
+  const [breakdownMode, setBreakdownMode] = useState("reason");
+  const [lastSetResult, setLastSetResult] = useState(null);
+
+  const breakpoint = system === 21 ? 11 : 8;
+
+  const startMatch = () => {
+    setSets([]);
+    setCurrent({ a: 0, b: 0 });
+    setSetWins({ a: 0, b: 0 });
+    setLog([]);
+    setPausedForSet(null);
+    setServer(initialServer);
+    setPhase("playing");
+  };
+
+  const backToSetup = () => {
+    setPhase("setup");
+    setSets([]);
+    setCurrent({ a: 0, b: 0 });
+    setSetWins({ a: 0, b: 0 });
+    setLog([]);
+    setPausedForSet(null);
+  };
+
+  const resetStep = () => {
+    setPending({ serveZone: null, winner: null, reason: null, zone: null, side: null });
+    setStep("servezone");
+  };
+
+  const commitPoint = (finalPending) => {
+    const winner = finalPending.winner;
+    const loser = winner === "a" ? "b" : "a";
+    const newCurrent = { ...current, [winner]: current[winner] + 1 };
+    const entry = {
+      id: Date.now() + Math.random(),
+      setNumber: sets.length + 1,
+      server: finalPending.server,
+      serveZone: finalPending.serveZone,
+      winner,
+      loser,
+      reason: finalPending.reason,
+      zone: finalPending.zone,
+      side: finalPending.side === "none" ? null : finalPending.side,
+      player: finalPending.player || null,
+      scoreAfter: newCurrent,
+    };
+    setLog((l) => [...l, entry]);
+    setCurrent(newCurrent);
+    setServer(winner);
+    resetStep();
+
+    const targetSetNumber = sets.length + 1;
+    if (pausedForSet !== targetSetNumber && (newCurrent.a === breakpoint || newCurrent.b === breakpoint)) {
+      setPausedForSet(targetSetNumber);
+      setPhase("pause");
+      return;
+    }
+
+    const result = evaluateSet(newCurrent.a, newCurrent.b, system);
+    if (result) {
+      const finishedSet = { a: newCurrent.a, b: newCurrent.b, winner: result };
+      const newSets = [...sets, finishedSet];
+      const newSetWins = { ...setWins, [result]: setWins[result] + 1 };
+      setSets(newSets);
+      setSetWins(newSetWins);
+      setLastSetResult({ ...finishedSet, matchOver: newSetWins[result] === 2 });
+      setPhase(newSetWins[result] === 2 ? "matchOver" : "setOver");
+    }
+  };
+
+  const continueFromPause = () => setPhase("playing");
+  const continueAfterSet = () => {
+    setCurrent({ a: 0, b: 0 });
+    setLastSetResult(null);
+    setPhase("playing");
+  };
+
+  const chooseServeZone = (id) => { setPending((p) => ({ ...p, serveZone: id, server })); setStep("winner"); };
+  const chooseWinner = (w) => { setPending((p) => ({ ...p, winner: w })); setStep("reason"); };
+  const chooseReason = (r) => { setPending((p) => ({ ...p, reason: r })); setStep("zone"); };
+  const chooseZone = (z) => { setPending((p) => ({ ...p, zone: z })); setStep("side"); };
+  const chooseSide = (s) => {
+    const next = { ...pending, side: s };
+    setPending(next);
+    if (teamSize === 2 && next.reason !== "opponent") setStep("player");
+    else commitPoint(next);
+  };
+  const choosePlayer = (playerName) => commitPoint({ ...pending, player: playerName });
+
+  const undo = () => {
+    if (log.length === 0) return;
+    const last = log[log.length - 1];
+    setLog((l) => l.slice(0, -1));
+    setCurrent((c) => ({ ...c, [last.winner]: c[last.winner] - 1 }));
+    setServer(last.server);
+  };
+
+  const fullStats = useMemo(() => {
+    const acc = { a: emptyTeamStats(), b: emptyTeamStats() };
+    log.forEach((entry) => {
+      const { loser, winner } = entry;
+      acc[loser].total += 1;
+      if (entry.reason) acc[loser].byReason[entry.reason] += 1;
+      if (entry.zone) acc[loser].byZone[entry.zone] += 1;
+      if (entry.side) acc[loser].bySide[entry.side] += 1;
+      const cls = classify(entry);
+      if (cls === "unforced") {
+        acc[loser].unforced.total += 1;
+        acc[loser].unforced.zone[entry.zone] += 1;
+        acc[loser].unforced.reason[entry.reason] += 1;
+      } else if (cls === "forced") {
+        acc[loser].forced.total += 1;
+        acc[loser].forced.zone[entry.zone] += 1;
+        acc[loser].forced.reason[entry.reason] += 1;
+      } else if (cls === "direct") {
+        acc[loser].direct.total += 1;
+        if (entry.reason) acc[loser].direct.reason[entry.reason] += 1;
+      } else {
+        acc[loser].winnerAgainst.total += 1;
+        if (entry.zone) acc[loser].winnerAgainst.zone[entry.zone] += 1;
+      }
+      if (entry.zone) acc[winner].attack.zone[entry.zone] += 1;
+      if (entry.player) acc[loser].byPlayer[entry.player] = (acc[loser].byPlayer[entry.player] || 0) + 1;
+      if (entry.serveZone && entry.server) {
+        const ss = acc[entry.server].serveStats[entry.serveZone];
+        ss.count += 1;
+        if (entry.winner === entry.server) ss.won += 1; else ss.lost += 1;
+      }
+    });
+    return acc;
+  }, [log]);
+
+  const chartData = (playerKey, mode) => {
+    const def = BREAKDOWNS[mode];
+    const source = mode === "reason" ? fullStats[playerKey].byReason : mode === "zone" ? fullStats[playerKey].byZone : fullStats[playerKey].bySide;
+    return def.items.map((it) => ({ name: it.label, id: it.id, value: source[it.id] || 0 })).filter((d) => d.value > 0).sort((a, b) => b.value - a.value);
+  };
+
+  const matchWinner = phase === "matchOver" ? (setWins.a === 2 ? "a" : "b") : null;
+  const tabs = [...Object.entries(BREAKDOWNS).map(([k, d]) => [k, d.label]), ["serve", "Aufschlag"]];
+
+  return (
+    <div ref={containerRef} style={styles.app}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Work+Sans:wght@400;500;600;700&display=swap');
+        * { box-sizing: border-box; font-family: 'Work Sans', sans-serif; }
+        .score-num { font-family: 'Bebas Neue', sans-serif; }
+        button { cursor: pointer; font-family: 'Work Sans', sans-serif; }
+        input { font-family: 'Work Sans', sans-serif; }
+        button:disabled { opacity: 0.4; cursor: default; }
+      `}</style>
+
+      <div style={styles.header}>
+        <div style={styles.netLine} />
+        <div style={styles.headerTitle}>Badminton Punkt-Tracker</div>
+        <button style={styles.fsBtn} onClick={toggleFullscreen} title="Vollbildmodus">
+          {isFullscreen ? <IconMinimize size={16} /> : <IconMaximize size={16} />}
+        </button>
+      </div>
+      {fsError && <div style={styles.fsErrorBox}>{fsError}</div>}
+
+      {phase === "setup" && (
+        <div style={styles.panel}>
+          <div style={styles.panelLabel}>Spielform</div>
+          <div style={styles.winnerRow}>
+            {[{ id: "einzel", label: "Einzel" }, { id: "doppel", label: "Doppel" }, { id: "mixed", label: "Mixed" }].map((m) => (
+              <button key={m.id} style={{ ...styles.winnerBtn, padding: "12px 8px", borderColor: matchType === m.id ? COLORS.a : "rgba(248,246,240,0.15)", color: matchType === m.id ? COLORS.a : "#DDE6DF" }} onClick={() => setMatchType(m.id)}>{m.label}</button>
+            ))}
+          </div>
+
+          <div style={{ marginTop: 18 }}>
+            <div style={styles.panelLabel}>Zählweise</div>
+            <div style={styles.winnerRow}>
+              <button style={{ ...styles.winnerBtn, borderColor: system === 21 ? COLORS.a : "rgba(248,246,240,0.15)", color: system === 21 ? COLORS.a : "#DDE6DF" }} onClick={() => setSystem(21)}>
+                21er-System
+                <div style={styles.subHint}>Satz bis 21, ab 20:20 bis max. 30, Pause bei 11</div>
+              </button>
+              <button style={{ ...styles.winnerBtn, borderColor: system === 15 ? COLORS.a : "rgba(248,246,240,0.15)", color: system === 15 ? COLORS.a : "#DDE6DF" }} onClick={() => setSystem(15)}>
+                15er-System
+                <div style={styles.subHint}>Satz bis 15, ab 14:14 bis max. 22, Pause bei 8</div>
+              </button>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 18 }}>
+            <div style={styles.panelLabel}>Team A</div>
+            <div style={styles.winnerRow}>
+              <input value={names.a[0]} onChange={(e) => setNames((n) => ({ ...n, a: [e.target.value, n.a[1]] }))} style={styles.nameInputFull} />
+              {teamSize === 2 && <input value={names.a[1]} onChange={(e) => setNames((n) => ({ ...n, a: [n.a[0], e.target.value] }))} style={styles.nameInputFull} />}
+            </div>
+            <div style={{ ...styles.panelLabel, marginTop: 12 }}>Team B</div>
+            <div style={styles.winnerRow}>
+              <input value={names.b[0]} onChange={(e) => setNames((n) => ({ ...n, b: [e.target.value, n.b[1]] }))} style={styles.nameInputFull} />
+              {teamSize === 2 && <input value={names.b[1]} onChange={(e) => setNames((n) => ({ ...n, b: [n.b[0], e.target.value] }))} style={styles.nameInputFull} />}
+            </div>
+          </div>
+
+          <div style={{ marginTop: 18 }}>
+            <div style={styles.panelLabel}>Aufschlag zuerst</div>
+            <div style={styles.winnerRow}>
+              <button style={{ ...styles.winnerBtn, borderColor: initialServer === "a" ? COLORS.a : "rgba(248,246,240,0.15)", color: initialServer === "a" ? COLORS.a : "#DDE6DF" }} onClick={() => setInitialServer("a")}>{teamLabel("a")}</button>
+              <button style={{ ...styles.winnerBtn, borderColor: initialServer === "b" ? COLORS.b : "rgba(248,246,240,0.15)", color: initialServer === "b" ? COLORS.b : "#DDE6DF" }} onClick={() => setInitialServer("b")}>{teamLabel("b")}</button>
+            </div>
+          </div>
+
+          <button style={styles.startBtn} onClick={startMatch}>Match starten – Best of 3 Sätze</button>
+        </div>
+      )}
+
+      {phase !== "setup" && (
+        <>
+          <div style={styles.matchTypeTag}>{matchType === "einzel" ? "Einzel" : matchType === "doppel" ? "Doppel" : "Mixed"} · {system}er-System</div>
+          <div style={styles.scoreboard}>
+            <div style={styles.scoreCol}>
+              <div style={{ ...styles.playerName, color: COLORS.a }}>{teamLabel("a")}{server === "a" && phase === "playing" ? " •" : ""}</div>
+              <div className="score-num" style={{ ...styles.scoreNum, color: COLORS.a }}>{current.a}</div>
+            </div>
+            <div style={styles.vsCol}>
+              <div style={styles.setsBadge}>Sätze {setWins.a}:{setWins.b}</div>
+              <div style={styles.vsLabel}>:</div>
+            </div>
+            <div style={styles.scoreCol}>
+              <div style={{ ...styles.playerName, color: COLORS.b }}>{teamLabel("b")}{server === "b" && phase === "playing" ? " •" : ""}</div>
+              <div className="score-num" style={{ ...styles.scoreNum, color: COLORS.b }}>{current.b}</div>
+            </div>
+          </div>
+
+          {sets.length > 0 && (
+            <div style={styles.setHistory}>
+              {sets.map((s, i) => (<span key={i} style={styles.setHistoryItem}>Satz {i + 1}: <span style={{ color: COLORS[s.winner] }}>{s.a}:{s.b}</span></span>))}
+            </div>
+          )}
+
+          <div style={styles.controlsRow}>
+            <button style={styles.smallBtn} onClick={undo} disabled={log.length === 0 || phase !== "playing"}>
+              <IconUndo size={14} style={{ marginRight: 6, verticalAlign: -2 }} />Letzten Punkt rückgängig
+            </button>
+            <button style={styles.smallBtn} onClick={backToSetup}>
+              <IconReset size={14} style={{ marginRight: 6, verticalAlign: -2 }} />Neues Match
+            </button>
+          </div>
+
+          {phase === "pause" && (
+            <div style={styles.banner}>
+              <div style={styles.bannerTitle}>Pause bei {breakpoint} Punkten</div>
+              <div style={styles.bigStatsRow}>
+                <BigStatsBlock name={teamLabel("a")} color={COLORS.a} teamStats={fullStats.a} />
+                <BigStatsBlock name={teamLabel("b")} color={COLORS.b} teamStats={fullStats.b} />
+              </div>
+              <div style={styles.tipBox}>{buildTip(fullStats.a, teamLabel("a"))}</div>
+              <div style={styles.tipBox}>{buildTip(fullStats.b, teamLabel("b"))}</div>
+              <button style={styles.startBtn} onClick={continueFromPause}>Weiter spielen</button>
+            </div>
+          )}
+
+          {(phase === "setOver" || phase === "matchOver") && lastSetResult && (
+            <div style={styles.banner}>
+              <div style={styles.bannerTitle}>{phase === "matchOver" ? "Match beendet" : `Satz ${sets.length} beendet`}</div>
+              <div style={styles.bannerText}>
+                {teamLabel(lastSetResult.winner)} gewinnt {lastSetResult.a}:{lastSetResult.b}
+                {phase === "matchOver" && (<> — <strong style={{ color: COLORS[matchWinner] }}>{teamLabel(matchWinner)} gewinnt das Match {setWins.a}:{setWins.b}</strong></>)}
+              </div>
+              {phase === "setOver" && (
+                <>
+                  <div style={styles.bigStatsRow}>
+                    <BigStatsBlock name={teamLabel("a")} color={COLORS.a} teamStats={fullStats.a} />
+                    <BigStatsBlock name={teamLabel("b")} color={COLORS.b} teamStats={fullStats.b} />
+                  </div>
+                  <div style={styles.tipBox}>{buildTip(fullStats.a, teamLabel("a"))}</div>
+                  <div style={styles.tipBox}>{buildTip(fullStats.b, teamLabel("b"))}</div>
+                  <button style={styles.startBtn} onClick={continueAfterSet}>Weiter zu Satz {sets.length + 1}</button>
+                </>
+              )}
+            </div>
+          )}
+
+          {phase === "playing" && (
+            <div style={styles.panel}>
+              {step === "servezone" && (
+                <>
+                  <div style={styles.panelLabel}>
+                    Aufschlag von <span style={{ color: COLORS[server], fontWeight: 700 }}>{teamLabel(server)}</span> – in welchen Bereich gespielt?
+                    <div style={styles.subHint}>
+                      Aus dem {current[server] % 2 === 0 ? "rechten" : "linken"} Aufschlagfeld (Stand {current[server]}) · Reihenfolge spiegelt sich automatisch je nach Seite
+                    </div>
+                  </div>
+                  <ServeSequence onSelect={chooseServeZone} mirrored={current[server] % 2 !== 0} server={server} names={names} teamSize={teamSize} colors={COLORS} />
+                </>
+              )}
+              {step === "winner" && (
+                <>
+                  <div style={styles.panelLabel}>Wer hat den Punkt gewonnen?</div>
+                  <div style={styles.winnerRow}>
+                    <button style={{ ...styles.winnerBtn, borderColor: COLORS.a, color: COLORS.a }} onClick={() => chooseWinner("a")}>{teamLabel("a")}</button>
+                    <button style={{ ...styles.winnerBtn, borderColor: COLORS.b, color: COLORS.b }} onClick={() => chooseWinner("b")}>{teamLabel("b")}</button>
+                  </div>
+                  <button style={styles.backBtn} onClick={() => setStep("servezone")}>zurück</button>
+                </>
+              )}
+              {step === "reason" && (
+                <>
+                  <div style={styles.panelLabel}>Wodurch ging der Punkt verloren? <span style={{ color: COLORS[pending.winner], fontWeight: 700 }}>(Punkt für {teamLabel(pending.winner)})</span></div>
+                  <div style={styles.reasonGrid}>
+                    {REASONS.map((r) => (
+                      <button key={r.id} style={styles.reasonBtn} onClick={() => chooseReason(r.id)} title={r.hint}>
+                        <span style={{ ...styles.reasonDot, background: REASON_COLOR[r.id] }} />{r.label}
+                      </button>
+                    ))}
+                  </div>
+                  <button style={styles.backBtn} onClick={() => setStep("winner")}>zurück</button>
+                </>
+              )}
+              {step === "zone" && (
+                <>
+                  <div style={styles.panelLabel}>Aus welcher Zone kam der entscheidende Ballwechsel für {teamLabel(pending.winner === "a" ? "b" : "a")}?</div>
+                  <div style={styles.reasonGrid}>
+                    {ZONES.map((z) => (
+                      <button key={z.id} style={styles.reasonBtn} onClick={() => chooseZone(z.id)} title={z.hint}>
+                        <span style={{ ...styles.reasonDot, background: ZONE_COLOR[z.id] }} />{z.label}
+                      </button>
+                    ))}
+                  </div>
+                  <button style={styles.backBtn} onClick={() => chooseZone(null)}>kein Zonenspiel – Punkt direkt entschieden (z. B. Aufschlag ins Netz) / überspringen</button>
+                  <button style={styles.backBtn} onClick={() => setStep("reason")}>zurück</button>
+                </>
+              )}
+              {step === "side" && (
+                <>
+                  <div style={styles.panelLabel}>Ging der entscheidende Ball auf Vorhand oder Rückhand?</div>
+                  <div style={styles.winnerRow}>
+                    <button style={{ ...styles.winnerBtn, borderColor: SIDE_COLOR.forehand, color: SIDE_COLOR.forehand }} onClick={() => chooseSide("forehand")}>Vorhand</button>
+                    <button style={{ ...styles.winnerBtn, borderColor: SIDE_COLOR.backhand, color: SIDE_COLOR.backhand }} onClick={() => chooseSide("backhand")}>Rückhand</button>
+                  </div>
+                  <button style={styles.backBtn} onClick={() => chooseSide("none")}>nicht entscheidend / überspringen</button>
+                  <button style={styles.backBtn} onClick={() => setStep("zone")}>zurück</button>
+                </>
+              )}
+              {step === "player" && (
+                <>
+                  <div style={styles.panelLabel}>Wer aus {teamLabel(pending.winner === "a" ? "b" : "a")} hatte den entscheidenden Ballkontakt?</div>
+                  <div style={styles.winnerRow}>
+                    {names[pending.winner === "a" ? "b" : "a"].slice(0, 2).map((p) => (
+                      <button key={p} style={{ ...styles.winnerBtn, borderColor: "rgba(248,246,240,0.25)", color: "#F0EEE6" }} onClick={() => choosePlayer(p)}>{p}</button>
+                    ))}
+                  </div>
+                  <button style={styles.backBtn} onClick={() => setStep("side")}>zurück</button>
+                </>
+              )}
+            </div>
+          )}
+
+          {log.length > 0 && (
+            <div style={styles.analysis}>
+              <div style={styles.analysisHeader}>
+                <div style={styles.analysisTitle}>Analyse</div>
+                <div style={styles.tabRow}>
+                  {tabs.map(([key, label]) => (
+                    <button key={key} style={{ ...styles.tabBtn, ...(breakdownMode === key ? styles.tabBtnActive : {}) }} onClick={() => setBreakdownMode(key)}>{label}</button>
+                  ))}
+                </div>
+              </div>
+
+              {breakdownMode === "serve" ? (
+                <div style={styles.courtSplit}>
+                  <div><ServeStatsView name={teamLabel("a")} color={COLORS.a} serveStats={fullStats.a.serveStats} /></div>
+                  <div style={styles.netDivider}>{Array.from({ length: 14 }).map((_, i) => <IconDot key={i} size={4} style={{ opacity: 0.25 }} />)}</div>
+                  <div><ServeStatsView name={teamLabel("b")} color={COLORS.b} serveStats={fullStats.b.serveStats} /></div>
+                </div>
+              ) : (
+                <div style={styles.courtSplit}>
+                  <div><AnalysisSide name={teamLabel("a")} color={COLORS.a} total={fullStats.a.total} data={chartData("a", breakdownMode)} mode={breakdownMode} /></div>
+                  <div style={styles.netDivider}>{Array.from({ length: 14 }).map((_, i) => <IconDot key={i} size={4} style={{ opacity: 0.25 }} />)}</div>
+                  <div><AnalysisSide name={teamLabel("b")} color={COLORS.b} total={fullStats.b.total} data={chartData("b", breakdownMode)} mode={breakdownMode} /></div>
+                </div>
+              )}
+
+              {phase === "matchOver" && (
+                <MatchSummary names={{ a: teamLabel("a"), b: teamLabel("b") }} fullStats={fullStats} teamSize={teamSize} />
+              )}
+
+              <div style={styles.logTitle}>Punkteverlauf</div>
+              <div style={styles.logList}>
+                {log.slice().reverse().map((entry) => {
+                  const reason = REASONS.find((r) => r.id === entry.reason);
+                  const zone = ZONES.find((z) => z.id === entry.zone);
+                  const side = SIDES.find((s) => s.id === entry.side);
+                  const sz = SERVE_ZONES.find((s) => s.id === entry.serveZone);
+                  return (
+                    <div key={entry.id} style={styles.logRow}>
+                      <span style={{ color: COLORS[entry.winner], fontWeight: 700, minWidth: 84 }}>{teamLabel(entry.winner)}</span>
+                      <IconChevron size={13} style={{ opacity: 0.5, margin: "0 6px" }} />
+                      <span style={{ color: "#EDEAE0", flex: 1 }}>
+                        {sz ? `Aufschlag ${sz.label} · ` : ""}{reason?.label}{zone ? ` · ${zone.short}` : ""}{side ? ` · ${side.label}` : ""}{entry.player ? ` · ${entry.player}` : ""}
+                      </span>
+                      <span style={styles.logScore}>S{entry.setNumber} · {entry.scoreAfter.a}:{entry.scoreAfter.b}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ServeSequence({ onSelect, mirrored, server, names, teamSize, colors }) {
+  const [active, setActive] = useState(0); // 0 = Aufschlag-Bild, 1 = Return-Bild — wie im slider.html-Beispiel
+
+  useEffect(() => {
+    const t = setTimeout(() => setActive(1), 1200);
+    return () => clearTimeout(t);
+  }, []);
+
+  const front = mirrored ? [SERVE_ZONES[3], SERVE_ZONES[2], SERVE_ZONES[1], SERVE_ZONES[0]] : [SERVE_ZONES[0], SERVE_ZONES[1], SERVE_ZONES[2], SERVE_ZONES[3]];
+  const back = mirrored ? [SERVE_ZONES[5], SERVE_ZONES[4]] : [SERVE_ZONES[4], SERVE_ZONES[5]];
+
+  const slideStyle = (isActive) => ({ ...styles.slide, opacity: isActive ? 1 : 0, transform: isActive ? "scale(1)" : "scale(1.05)" });
+
+  return (
+    <div>
+      <div style={styles.simpleSliderWrap}>
+        {/* Lege deine eigenen Bilder unter diesen Dateinamen neben die index.html im Repo */}
+        <img src="serve-view.jpeg" alt="Aufschlag" style={{ ...slideStyle(active === 0), width: "100%", height: "100%", objectFit: "cover" }} />
+        <img src="receive-view.jpeg" alt="Return" style={{ ...slideStyle(active === 1), width: "100%", height: "100%", objectFit: "cover" }} />
+      </div>
+
+      <div style={styles.reasonGrid}>
+        {[...front, ...back].map((z) => (
+          <button key={z.id} style={styles.reasonBtn} onClick={() => onSelect(z.id)} title={z.hint}>{z.label}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+
+function AnalysisSide({ name, color, total, data, mode }) {
+  const colorMap = BREAKDOWNS[mode].colorMap;
+  const top = data.length ? data[0] : null;
+  const maxValue = data.length ? data[0].value : 0;
+  return (
+    <div>
+      <div style={{ ...styles.sideHeader, color }}>{name}</div>
+      <div style={styles.sideSub}>{total} verlorene {total === 1 ? "Punkt" : "Punkte"}</div>
+      {top && <div style={styles.topReasonBox}>Meist: <strong>{top.name}</strong> ({top.value}×)</div>}
+      {data.length > 0 ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {data.map((d) => (
+            <div key={d.id} style={styles.barRow}>
+              <div style={styles.barLabel} title={d.name}>{d.name}</div>
+              <div style={styles.barTrack}>
+                <div style={{ ...styles.barFill, width: `${Math.max(8, (d.value / maxValue) * 100)}%`, background: colorMap[d.id] }} />
+              </div>
+              <div style={styles.barValue}>{d.value}</div>
+            </div>
+          ))}
+        </div>
+      ) : <div style={{ fontSize: 11.5, color: "#CFE0D5" }}>Keine Daten</div>}
+    </div>
+  );
+}
+
+
+function ServeStatsView({ name, color, serveStats }) {
+  const rows = SERVE_ZONES.map((z) => ({ ...z, ...serveStats[z.id] })).filter((r) => r.count > 0).sort((a, b) => b.count - a.count);
+  return (
+    <div>
+      <div style={{ ...styles.sideHeader, color }}>{name}</div>
+      <div style={styles.sideSub}>Aufschlag-Statistik nach Bereich</div>
+      {rows.length === 0 ? (
+        <div style={{ fontSize: 11.5, color: "#CFE0D5" }}>Keine Daten</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {rows.map((r) => {
+            const lostPct = Math.round((r.lost / r.count) * 100);
+            return (
+              <div key={r.id} style={styles.serveRow}>
+                <span style={styles.serveRowLabel}>{r.label}</span>
+                <span style={styles.serveRowCount}>{r.count}×</span>
+                <span style={{ ...styles.serveRowRate, color: lostPct >= 50 ? "#E0637A" : "#4FA870" }}>{lostPct}% Fehlerquote</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MatchSummary({ names, fullStats, teamSize }) {
+  const row = (key) => {
+    const s = fullStats[key];
+    const attackEntries = Object.entries(s.attack.zone).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+    const topAttack = attackEntries[0] ? ZONES.find((z) => z.id === attackEntries[0][0]) : null;
+    const unforcedTop = Object.entries(s.unforced.zone).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])[0];
+    const forcedTop = Object.entries(s.forced.reason).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])[0];
+    const playerFaults = Object.entries(s.byPlayer).sort((a, b) => b[1] - a[1]);
+    const serveRows = SERVE_ZONES.map((z) => ({ ...z, ...s.serveStats[z.id] })).filter((r) => r.count > 0);
+    const bestServe = serveRows.slice().sort((a, b) => a.lost / a.count - b.lost / b.count)[0];
+    const worstServe = serveRows.slice().sort((a, b) => b.lost / b.count - a.lost / a.count)[0];
+    return {
+      s, topAttack,
+      unforcedZoneLabel: unforcedTop ? ZONES.find((z) => z.id === unforcedTop[0])?.short : null,
+      unforcedZoneCount: unforcedTop?.[1],
+      forcedReasonLabel: forcedTop ? REASONS.find((r) => r.id === forcedTop[0])?.label : null,
+      playerFaults, bestServe, worstServe,
+    };
+  };
+  const a = row("a"), b = row("b");
+  return (
+    <div style={styles.summaryBox}>
+      <div style={styles.summaryTitle}>Endstatistik – Forced &amp; Unforced Errors</div>
+      <div style={styles.summaryGrid}>
+        {[{ key: "a", d: a }, { key: "b", d: b }].map(({ key, d }) => (
+          <div key={key} style={styles.summaryCol}>
+            <div style={{ ...styles.summaryName, color: COLORS[key] }}>{names[key]}</div>
+            <div style={styles.summaryLine}><span style={styles.summaryLabel}>Unerzwungene Fehler</span><span style={styles.summaryValue}>{d.s.unforced.total}</span></div>
+            {d.unforcedZoneLabel && <div style={styles.summarySub}>meist Zone „{d.unforcedZoneLabel}" ({d.unforcedZoneCount}×) – eigener Fehler trotz Zeit</div>}
+            <div style={styles.summaryLine}><span style={styles.summaryLabel}>Erzwungene Fehler</span><span style={styles.summaryValue}>{d.s.forced.total}</span></div>
+            {d.forcedReasonLabel && <div style={styles.summarySub}>meist „{d.forcedReasonLabel}" aus Zone „Verteidigung" – Gegner hat gut vorbereitet</div>}
+            <div style={styles.summaryLine}><span style={styles.summaryLabel}>Gegner-Winner kassiert</span><span style={styles.summaryValue}>{d.s.winnerAgainst.total}</span></div>
+            <div style={styles.summaryLine}><span style={styles.summaryLabel}>Direkt entschieden (kein Zonenspiel)</span><span style={styles.summaryValue}>{d.s.direct.total}</span></div>
+            <div style={styles.summaryLine}><span style={styles.summaryLabel}>Bringt Gegner meist in</span><span style={{ ...styles.summaryValue, color: d.topAttack ? ZONE_COLOR[d.topAttack.id] : "#F5F2E8" }}>{d.topAttack ? d.topAttack.short : "–"}</span></div>
+            {d.bestServe && <div style={styles.summarySub}>Bester Aufschlag: „{d.bestServe.label}", nur {Math.round((d.bestServe.lost / d.bestServe.count) * 100)}% Fehlerquote</div>}
+            {d.worstServe && <div style={styles.summarySub}>Schwächster Aufschlag: „{d.worstServe.label}", {Math.round((d.worstServe.lost / d.worstServe.count) * 100)}% Fehlerquote</div>}
+            {teamSize === 2 && d.playerFaults.length > 0 && (
+              <div style={styles.summarySub}>Meiste Fehler im Team: <strong style={{ color: "#F5F2E8" }}>{d.playerFaults[0][0]}</strong> ({d.playerFaults[0][1]}×)</div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const styles = {
+  app: { background: "linear-gradient(180deg,#0A2A20 0%,#0F3527 100%)", minHeight: "100%", padding: "24px 18px 40px", color: "#F5F2E8", maxWidth: 640, margin: "0 auto", borderRadius: 12 },
+  header: { display: "flex", alignItems: "center", gap: 12, marginBottom: 8 },
+  netLine: { flex: 1, height: 1, background: "linear-gradient(90deg, transparent, rgba(248,246,240,0.25), transparent)" },
+  headerTitle: { fontSize: 13, letterSpacing: "0.12em", textTransform: "uppercase", color: "#CFE0D5", whiteSpace: "nowrap" },
+  fsBtn: { background: "transparent", border: "1px solid rgba(248,246,240,0.2)", color: "#F5F2E8", borderRadius: 8, padding: "6px 8px", display: "flex", alignItems: "center" },
+  fsErrorBox: { fontSize: 11, color: "#F5D6A0", background: "rgba(217,170,62,0.12)", border: "1px solid rgba(217,170,62,0.3)", borderRadius: 8, padding: "8px 10px", marginBottom: 14 },
+  matchTypeTag: { fontSize: 11, color: "#CFE0D5", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.08em" },
+  scoreboard: { display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", background: "#123C2D", border: "1px solid rgba(248,246,240,0.1)", borderRadius: 14, padding: "20px 16px", marginBottom: 10 },
+  scoreCol: { textAlign: "center" },
+  playerName: { fontSize: 14, fontWeight: 700, marginBottom: 6, letterSpacing: "0.02em" },
+  nameInputFull: { flex: 1, fontSize: 13, fontWeight: 600, background: "transparent", border: "1px solid rgba(248,246,240,0.25)", borderRadius: 8, color: "#F5F2E8", padding: "10px 10px" },
+  scoreNum: { fontSize: 60, lineHeight: 1 },
+  vsCol: { display: "flex", flexDirection: "column", alignItems: "center", padding: "0 10px" },
+  vsLabel: { fontSize: 24, color: "#CFE0D5", fontFamily: "'Bebas Neue', sans-serif" },
+  setsBadge: { fontSize: 10.5, color: "#CFE0D5", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 },
+  setHistory: { display: "flex", gap: 10, flexWrap: "wrap", fontSize: 11, color: "#CFE0D5", marginBottom: 14, padding: "0 4px" },
+  setHistoryItem: { background: "rgba(248,246,240,0.05)", borderRadius: 6, padding: "4px 8px" },
+  controlsRow: { display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap" },
+  smallBtn: { background: "transparent", border: "1px solid rgba(248,246,240,0.15)", color: "#EDEAE0", fontSize: 12, borderRadius: 8, padding: "8px 12px", flex: "1 1 auto" },
+  banner: { background: "#17493A", border: "1px solid rgba(248,246,240,0.15)", borderRadius: 14, padding: 18, marginBottom: 20, textAlign: "center" },
+  bannerTitle: { fontSize: 12, textTransform: "uppercase", letterSpacing: "0.1em", color: "#CFE0D5", marginBottom: 8, fontWeight: 700 },
+  bannerText: { fontSize: 14.5, color: "#F5F2E8", marginBottom: 14 },
+  tipBox: { fontSize: 12.5, color: "#F5F2E8", background: "rgba(248,246,240,0.08)", borderRadius: 8, padding: "10px 12px", marginBottom: 8, textAlign: "left", lineHeight: 1.5 },
+  bigStatsRow: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 18 },
+  bigStatsCol: { background: "rgba(248,246,240,0.06)", borderRadius: 12, padding: "14px 10px" },
+  bigStatsName: { fontSize: 13, fontWeight: 700, marginBottom: 10 },
+  bigStatsItem: { marginBottom: 12 },
+  bigStatsValue: { fontSize: 38, fontWeight: 700, color: "#F5F2E8", lineHeight: 1, fontFamily: "'Bebas Neue', sans-serif", letterSpacing: "0.02em" },
+  bigStatsValueSmall: { fontSize: 18, fontWeight: 700, color: "#F5F2E8", lineHeight: 1.2 },
+  bigStatsLabel: { fontSize: 10.5, color: "#CFE0D5", marginTop: 4, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 },
+  panel: { background: "#0F3527", border: "1px solid rgba(248,246,240,0.1)", borderRadius: 14, padding: 18, marginBottom: 20 },
+  panelLabel: { fontSize: 13, color: "#EDEAE0", marginBottom: 14, fontWeight: 500 },
+  subHint: { fontSize: 10.5, fontWeight: 400, color: "#CFE0D5", marginTop: 4 },
+  winnerRow: { display: "flex", gap: 12 },
+  winnerBtn: { flex: 1, background: "transparent", border: "1.5px solid", borderRadius: 10, padding: "18px 10px", fontSize: 15, fontWeight: 700 },
+  startBtn: { width: "100%", marginTop: 10, background: "#D9AA3E", border: "none", color: "#2B2005", fontWeight: 700, fontSize: 14, borderRadius: 10, padding: "13px 10px" },
+  reasonGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 },
+  reasonBtn: { display: "flex", alignItems: "center", gap: 8, background: "#123C2D", border: "1px solid rgba(248,246,240,0.1)", borderRadius: 8, padding: "10px 10px", fontSize: 12.5, color: "#F5F2E8", textAlign: "left", fontWeight: 500 },
+  reasonDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+  simpleSliderWrap: { position: "relative", aspectRatio: "3 / 2", marginBottom: 14, background: "#0F3527", borderRadius: 12, border: "1px solid rgba(248,246,240,0.1)", overflow: "hidden" },
+  slide: { position: "absolute", inset: 0, transition: "opacity 1s ease-in-out, transform 1s ease-in-out" },
+  simpleSlideInner: { height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 },
+  simpleDot: { width: 22, height: 22, borderRadius: "50%", boxShadow: "0 0 16px 6px rgba(62,207,110,0.55)" },
+  simpleSlideLabel: { fontSize: 13, color: "#EDEAE0", fontWeight: 500 },
+  backBtn: { display: "block", marginTop: 12, background: "transparent", border: "none", color: "#CFE0D5", fontSize: 12, textDecoration: "underline", padding: 0 },
+  analysis: { background: "#0F3527", border: "1px solid rgba(248,246,240,0.1)", borderRadius: 14, padding: 18 },
+  analysisHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 16 },
+  analysisTitle: { fontSize: 15, fontWeight: 700, color: "#F5F2E8" },
+  tabRow: { display: "flex", gap: 6, flexWrap: "wrap" },
+  tabBtn: { background: "transparent", border: "1px solid rgba(248,246,240,0.15)", color: "#CFE0D5", fontSize: 11.5, borderRadius: 7, padding: "5px 10px", fontWeight: 600 },
+  tabBtnActive: { background: "rgba(217,170,62,0.18)", borderColor: "#D9AA3E", color: "#D9AA3E" },
+  courtSplit: { display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 14, marginBottom: 22 },
+  netDivider: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "space-between", color: "#CFE0D5" },
+  sideHeader: { fontSize: 14, fontWeight: 700, marginBottom: 2 },
+  sideSub: { fontSize: 11.5, color: "#CFE0D5", marginBottom: 10, fontWeight: 500 },
+  topReasonBox: { fontSize: 11.5, background: "rgba(248,246,240,0.08)", borderRadius: 6, padding: "6px 8px", marginBottom: 10, color: "#F5F2E8", fontWeight: 500 },
+  barRow: { display: "flex", alignItems: "center", gap: 8, fontSize: 10.5 },
+  barLabel: { width: 92, color: "#F5F2E8", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  barTrack: { flex: 1, height: 10, background: "rgba(248,246,240,0.08)", borderRadius: 5, overflow: "hidden" },
+  barFill: { height: "100%", borderRadius: 5 },
+  barValue: { width: 16, textAlign: "right", color: "#CFE0D5", fontWeight: 600 },
+  serveRow: { display: "flex", alignItems: "center", gap: 6, fontSize: 11, background: "rgba(248,246,240,0.05)", borderRadius: 6, padding: "5px 7px" },
+  serveRowNum: { width: 16, height: 16, borderRadius: 4, background: "#D9AA3E", color: "#2B2005", fontWeight: 700, fontSize: 9.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  serveRowLabel: { flex: 1, color: "#F5F2E8", fontWeight: 500 },
+  serveRowCount: { color: "#CFE0D5", fontWeight: 600 },
+  serveRowRate: { fontWeight: 700, minWidth: 78, textAlign: "right" },
+  summaryBox: { borderTop: "1px solid rgba(248,246,240,0.1)", paddingTop: 18, marginBottom: 22 },
+  summaryTitle: { fontSize: 15, fontWeight: 700, color: "#F5F2E8", marginBottom: 14 },
+  summaryGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 },
+  summaryCol: { background: "rgba(248,246,240,0.05)", borderRadius: 10, padding: 14 },
+  summaryName: { fontSize: 14, fontWeight: 700, marginBottom: 10 },
+  summaryLine: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 8 },
+  summaryLabel: { fontSize: 12, color: "#EDEAE0", fontWeight: 500 },
+  summaryValue: { fontSize: 18, color: "#F5F2E8", fontWeight: 700 },
+  summarySub: { fontSize: 11, color: "#CFE0D5", marginTop: 3, lineHeight: 1.4 },
+  logTitle: { fontSize: 13, fontWeight: 700, color: "#EDEAE0", marginBottom: 8, borderTop: "1px solid rgba(248,246,240,0.1)", paddingTop: 16 },
+  logList: { maxHeight: 260, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 },
+  logRow: { display: "flex", alignItems: "center", fontSize: 12, padding: "6px 8px", background: "rgba(248,246,240,0.04)", borderRadius: 6 },
+  logScore: { fontSize: 11, color: "#CFE0D5", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", fontWeight: 600 },
+};
+
+
+ReactDOM.createRoot(document.getElementById("root")).render(<BadmintonTracker />);
+</script>
+
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>
