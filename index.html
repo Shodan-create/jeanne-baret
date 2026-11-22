@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jeanne Baret digital entdecken – Die interaktive Landkarte für den modernen Unterricht</title>
+<meta name="description" content="Interaktive Karte zur Weltumsegelung von Jeanne Baret (1767–1775): Stationen, Pflanzen-Steckbriefe und historische Dokumente.">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<style>
+  :root {
+    --ink: #1d2b3a;
+    --ink-soft: #4a5868;
+    --paper: #f7f4ee;
+    --card: #ffffff;
+    --line: #ddd6c8;
+    --sea: #1f4e6b;
+    --stay: #8a4b2a;
+    --home: #6b6b6b;
+    --plant: #7b3f8c;
+    --radius: 10px;
+    --serif: Georgia, "Times New Roman", serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; font-family: var(--sans); color: var(--ink); background: var(--paper); line-height: 1.55; }
+  a { color: var(--sea); }
+  header.top { padding: 28px 20px 18px; max-width: 1200px; margin: 0 auto; }
+  header.top h1 { font-family: var(--serif); font-size: clamp(1.6rem, 3.6vw, 2.6rem); line-height: 1.15; margin: 0 0 8px; }
+  header.top p { margin: 0; color: var(--ink-soft); max-width: 760px; }
+  nav.jump { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  nav.jump a { text-decoration: none; font-size: .92rem; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--ink); }
+  nav.jump a:hover { border-color: var(--sea); }
+
+  main { max-width: 1200px; margin: 0 auto; padding: 0 20px 40px; }
+  section { margin-top: 36px; }
+  section > h2 { font-family: var(--serif); font-size: 1.6rem; margin: 0 0 6px; }
+  section > p.lead { margin: 0 0 16px; color: var(--ink-soft); max-width: 760px; }
+
+  /* Karte + Seitenleiste */
+  .map-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; }
+  #map { height: 68vh; min-height: 420px; border-radius: var(--radius); border: 1px solid var(--line); background: #dfe8ee; }
+  .leaflet-tile-pane { filter: sepia(.25) saturate(.85); }
+  aside.panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); display: flex; flex-direction: column; max-height: 68vh; min-height: 420px; }
+  .panel-head { padding: 14px 14px 10px; border-bottom: 1px solid var(--line); }
+  .panel-head h3 { margin: 0 0 8px; font-family: var(--serif); font-size: 1.1rem; }
+  .controls { display: flex; gap: 6px; }
+  .controls button { flex: 1; font: inherit; font-size: .9rem; padding: 7px 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); cursor: pointer; }
+  .controls button:hover { border-color: var(--sea); }
+  .controls button.primary { background: var(--sea); color: #fff; border-color: var(--sea); }
+  ol.stations { list-style: none; margin: 0; padding: 6px; overflow-y: auto; flex: 1; }
+  ol.stations li button { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; font: inherit; padding: 8px; border: 0; background: none; border-radius: 8px; cursor: pointer; color: var(--ink); }
+  ol.stations li button:hover, ol.stations li button[aria-current="true"] { background: #eef3f6; }
+  ol.stations .num { flex: 0 0 26px; height: 26px; border-radius: 50%; color: #fff; font-size: .8rem; font-weight: 700; display: grid; place-items: center; margin-top: 1px; }
+  ol.stations .t { font-weight: 600; font-size: .95rem; display: block; }
+  ol.stations .d { font-size: .8rem; color: var(--ink-soft); }
+
+  /* Marker */
+  .pin { width: 30px; height: 30px; border-radius: 50%; color: #fff; font: 700 13px/30px var(--sans); text-align: center; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.45); }
+  .pin.sea { background: var(--sea); }
+  .pin.stay { background: var(--stay); }
+  .pin.home { background: var(--home); }
+  .pin.active { transform: scale(1.25); box-shadow: 0 0 0 4px rgba(31,78,107,.3), 0 1px 4px rgba(0,0,0,.45); }
+  .plant-pin { width: 28px; height: 28px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: var(--plant); border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.45); display: grid; place-items: center; }
+  .plant-pin svg { transform: rotate(45deg); }
+
+  /* Popups */
+  .leaflet-popup-content { margin: 14px 16px; font-family: var(--sans); font-size: .92rem; line-height: 1.5; }
+  .pop h4 { font-family: var(--serif); font-size: 1.1rem; margin: 0 0 2px; }
+  .pop .when { font-size: .82rem; color: var(--ink-soft); margin-bottom: 8px; }
+  .pop .lbl { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft); margin: 10px 0 2px; font-weight: 700; }
+  .pop p { margin: 0 0 6px; }
+  .pop .note { background: #f4efe4; border-radius: 6px; padding: 6px 8px; font-size: .85rem; margin-top: 8px; }
+  .pop .go { display: inline-block; margin-top: 6px; font-weight: 600; }
+
+  /* Legende */
+  .legend { background: rgba(255,255,255,.95); padding: 8px 10px; border-radius: 8px; font-size: .8rem; line-height: 1.6; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+  .legend .ln { display: inline-block; width: 18px; height: 0; border-top: 3px solid var(--sea); margin-right: 6px; vertical-align: 3px; }
+
+  /* Karten (Pflanzen, Dokumente) */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; }
+  .card .swatch { height: 96px; display: grid; place-items: center; }
+  .card .body { padding: 14px 16px 16px; display: flex; flex-direction: column; flex: 1; }
+  .card h3 { font-family: var(--serif); margin: 0; font-size: 1.2rem; }
+  .card .latin { font-style: italic; color: var(--ink-soft); margin: 0 0 10px; font-size: .92rem; }
+  .card dl { margin: 0 0 10px; display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; font-size: .88rem; }
+  .card dt { font-weight: 700; color: var(--ink-soft); }
+  .card dd { margin: 0; }
+  .card p { margin: 0 0 10px; font-size: .92rem; }
+  .card button { margin-top: auto; align-self: flex-start; font: inherit; font-size: .88rem; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--plant); background: #fff; color: var(--plant); cursor: pointer; }
+  .card button:hover { background: var(--plant); color: #fff; }
+
+  .doc { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
+  .doc .src { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--stay); font-weight: 700; margin-bottom: 4px; }
+  .doc h3 { font-family: var(--serif); margin: 0 0 10px; font-size: 1.2rem; }
+  .doc blockquote { margin: 0 0 10px; padding: 10px 14px; border-left: 3px solid var(--line); background: #faf8f3; font-family: var(--serif); font-size: 1rem; }
+  .doc .hint { font-size: .84rem; color: var(--ink-soft); margin: 0 0 8px; }
+  .doc p { margin: 0 0 8px; font-size: .94rem; }
+  .docs { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+
+  .sources ul { padding-left: 20px; margin: 0; }
+  .sources li { margin-bottom: 6px; font-size: .92rem; }
+  footer { max-width: 1200px; margin: 0 auto; padding: 20px; font-size: .82rem; color: var(--ink-soft); border-top: 1px solid var(--line); }
+
+  .legend-below { display: none; font-size: .82rem; color: var(--ink-soft); margin: 8px 2px 0; }
+  .legend-below i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 4px 0 10px; vertical-align: 0; }
+  @media (max-width: 600px) {
+    .legend { display: none; }
+    .legend-below { display: block; }
+  }
+  @media (max-width: 860px) {
+    .map-wrap { grid-template-columns: 1fr; }
+    #map { height: 58vh; min-height: 340px; }
+    aside.panel { max-height: 380px; min-height: 0; }
+    .docs { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>Jeanne Baret digital entdecken – Die interaktive Landkarte für den modernen Unterricht</h1>
+  <p>Jeanne Baret (1740–1807) war die erste Frau, die nachweislich einmal um die ganze Welt gereist ist – verkleidet als Mann, als Assistentin des Botanikers Philibert Commerson. Klick dich durch ihre Reise, lern ihre Pflanzen kennen und lies, was Zeitzeugen über sie geschrieben haben.</p>
+  <nav class="jump" aria-label="Seitenbereiche">
+    <a href="#route">Die Route</a>
+    <a href="#pflanzen">Pflanzen-Steckbriefe</a>
+    <a href="#dokumente">Historische Dokumente</a>
+    <a href="#quellen">Quellen</a>
+  </nav>
+</header>
+
+<main>
+  <section id="route">
+    <h2>Die Route zum Mitklicken</h2>
+    <p class="lead">Die Expedition von Louis-Antoine de Bougainville fuhr 1766–1769 um die Welt. Jeanne stieg im Februar 1767 auf das Schiff <em>Étoile</em>. Sie blieb ab Ende 1768 auf Mauritius und kam erst um 1775 nach Frankreich zurück. Klick auf einen Marker oder nutze die Liste.</p>
+
+    <div class="map-wrap">
+      <div>
+        <div id="map" role="region" aria-label="Interaktive Karte der Reise"></div>
+        <p class="legend-below"><i style="background:#1f4e6b;margin-left:0"></i>Expedition <i style="background:#8a4b2a"></i>Forschungsjahre <i style="background:#6b6b6b"></i>Frankreich <i style="background:#7b3f8c"></i>Pflanzen</p>
+      </div>
+      <aside class="panel" aria-label="Stationen">
+        <div class="panel-head">
+          <h3>Stationen</h3>
+          <div class="controls">
+            <button type="button" id="prev" aria-label="Vorherige Station">◀ Zurück</button>
+            <button type="button" id="play" class="primary">▶ Reise abspielen</button>
+            <button type="button" id="next" aria-label="Nächste Station">Weiter ▶</button>
+          </div>
+        </div>
+        <ol class="stations" id="stationList"></ol>
+      </aside>
+    </div>
+  </section>
+
+  <section id="pflanzen">
+    <h2>Pflanzen-Steckbriefe</h2>
+    <p class="lead">Jeanne Baret hatte als junge Frau gelernt, Heilpflanzen zu erkennen. Auf der Reise sammelte sie zusammen mit Commerson tausende Pflanzenproben. Hier sind einige Pflanzen, die mit ihr verbunden sind. Ein Klick auf „Auf der Karte zeigen“ führt zum Fundort.</p>
+    <div class="grid" id="plantGrid"></div>
+  </section>
+
+  <section id="dokumente">
+    <h2>Historische Dokumente</h2>
+    <p class="lead">Jeanne selbst hat keine Berichte hinterlassen. Wir kennen ihre Geschichte nur aus Texten von Männern, die mit ihr gereist sind, und aus Urkunden. Die Ausschnitte sind gekürzt und sinngemäß ins Deutsche übersetzt.</p>
+    <div class="docs" id="docGrid"></div>
+  </section>
+
+  <section id="quellen" class="sources">
+    <h2>Quellen</h2>
+    <ul>
+      <li>Ridley, Glynis (2010): <em>The Discovery of Jeanne Baret.</em> Crown, New York. – <a href="https://www.penguinrandomhouse.com/books/200271/the-discovery-of-jeanne-baret-by-glynis-ridley/" target="_blank" rel="noopener">Verlagsseite</a></li>
+      <li>Bougainville, Louis-Antoine de (1771): <em>Voyage autour du monde.</em> – <a href="https://www.loc.gov/item/05034862/" target="_blank" rel="noopener">Digitalisat der Library of Congress</a> · <a href="https://www.gutenberg.org/ebooks/28485" target="_blank" rel="noopener">Projekt Gutenberg (Band 1)</a> · <a href="https://www.gutenberg.org/ebooks/73429" target="_blank" rel="noopener">englische Übersetzung von 1772</a></li>
+      <li>Royal Museums Greenwich: <a href="https://www.rmg.co.uk/stories/maritime-history/jeanne-baret-first-woman-sail-around-world" target="_blank" rel="noopener">Jeanne Baret – first woman to sail around the world</a></li>
+      <li>Encyclopaedia Britannica: <a href="https://www.britannica.com/biography/Jeanne-Baret" target="_blank" rel="noopener">Jeanne Baret</a></li>
+      <li>The Mariners' Museum: <a href="https://exploration.marinersmuseum.org/subject/jeanne-baret/" target="_blank" rel="noopener">Jeanne Baret</a></li>
+      <li>Scientific Women: <a href="https://scientificwomen.net/women/baret-jeanne-155" target="_blank" rel="noopener">Jeanne Baret</a> (Zusammenfassung der Tagebücher von Bougainville und Vivès)</li>
+      <li>Australian National Maritime Museum: <a href="https://www.sea.museum/2015/11/10/she-will-be-the-first-woman-that-has-ever-made-it" target="_blank" rel="noopener">„She will be the first woman that has ever made it“</a></li>
+      <li>Chemins de mémoire (franz. Verteidigungsministerium): <a href="https://www.cheminsdememoire.gouv.fr/sites/default/files/2023-10/Barret.pdf" target="_blank" rel="noopener">Jeanne Barret (PDF)</a></li>
+      <li>Knapp, Sandra (2013): <a href="https://blog.biodiversitylibrary.org/2013/03/celebrating-womens-history-month-jeanne-baret-the-man-who-was-a-woman" target="_blank" rel="noopener">Jeanne Baret – Biodiversity Heritage Library</a></li>
+      <li>Tepe, E. J.; Ridley, G.; Bohs, L. (2012): A new species of <em>Solanum</em> named for Jeanne Baret. <em>PhytoKeys</em> 8: 37–47. – <a href="https://doi.org/10.3897/phytokeys.8.2101" target="_blank" rel="noopener">doi:10.3897/phytokeys.8.2101</a></li>
+      <li>Old Salt Blog: <a href="https://oldsaltblog.com/jeanne-baret-the-first-woman-to-circumnavigate-the-globe/" target="_blank" rel="noopener">Jeanne Baret</a> (Text der Rentenurkunde von 1785, engl.)</li>
+    </ul>
+  </section>
+</main>
+
+<footer>
+  Kartendaten © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-Mitwirkende · Karte mit <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>.
+  Die Linien zeigen die Reise vereinfacht; die genauen Kurse der Schiffe sind nicht überall bekannt. Die Rückreise um 1775 ist nur vermutet.
+</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script>
+(function () {
+  "use strict";
+
+  if (typeof L === "undefined") {
+    document.getElementById("map").innerHTML =
+      '<p style="padding:20px">Die Karte konnte nicht geladen werden. Bitte prüfe die Internetverbindung und lade die Seite neu.</p>';
+    return;
+  }
+
+  /* ------------------------------------------------------------------
+     Längengrade: Die Reise geht einmal nach Westen um die ganze Erde.
+     Damit die Linie nicht falsch herum über die Karte springt, rechnen
+     wir alles westlich von Tahiti mit "Länge minus 360". So entsteht eine
+     durchgehende Schleife von Frankreich (Start) bis Frankreich (Ziel).
+     ------------------------------------------------------------------ */
+  function W(lon) { return lon - 360; }
+
+  const COLORS = { sea: "#1f4e6b", stay: "#8a4b2a", home: "#6b6b6b" };
+
+  const stations = [
+    {
+      id: "comelle", label: "A", type: "home", lat: 46.88, lon: 4.12,
+      title: "La Comelle (Burgund)", when: "27. Juli 1740",
+      erlebt: "Jeanne wird in einer armen Bauernfamilie geboren. Ihr Vater ist Tagelöhner.",
+      leistung: "Sie lernt von Leuten aus der Gegend, welche Pflanzen heilen und welche giftig sind. Dieses Wissen wird später ihr Beruf.",
+      note: "Ob sie lesen und schreiben konnte, ist umstritten. Neuere Forschung zeigt: 1764 konnte sie zumindest schreiben."
+    },
+    {
+      id: "paris", label: "B", type: "home", lat: 48.853, lon: 2.35,
+      title: "Paris", when: "1764–1766",
+      erlebt: "Jeanne arbeitet als Haushälterin für den Botaniker Philibert Commerson. Die beiden werden ein Paar und ziehen nach Paris. Ihr gemeinsamer Sohn stirbt als Baby.",
+      leistung: "Sie hilft Commerson, die Pflanzensammlung zu ordnen und die große Reise vorzubereiten."
+    },
+    {
+      id: "rochefort", label: "1", type: "sea", lat: 45.94, lon: -0.96,
+      title: "Rochefort – Start", when: "1. Februar 1767",
+      erlebt: "Frauen durften nicht auf Schiffen der französischen Marine mitfahren. Deshalb hat Jeanne die Haare kurz, die Brust abgebunden und nennt sich „Jean Baré“. Im Hafen tut sie so, als würde sie Commerson nicht kennen, und er stellt sie als Diener ein.",
+      leistung: "Commerson und sein „Diener“ bekommen die Kabine des Kapitäns, weil sie so viel Ausrüstung haben. Dort kann Jeanne ihr Geheimnis schützen.",
+      note: "Bougainville selbst war schon im Dezember 1766 mit der Fregatte <em>Boudeuse</em> in Brest losgefahren. Jeanne fuhr auf dem Versorgungsschiff <em>Étoile</em>."
+    },
+    {
+      id: "rio", label: "2", type: "sea", lat: -22.9, lon: -43.2,
+      title: "Rio de Janeiro (Brasilien)", when: "Juni–Juli 1767",
+      erlebt: "Commerson hat eine schlimme Wunde am Bein und kann kaum laufen. Der portugiesische Vizekönig ist den Franzosen außerdem feindlich gesinnt.",
+      leistung: "Jeanne sammelt wahrscheinlich viele Pflanzen allein. Hier wird die Kletterpflanze mit den leuchtend lila Hochblättern gefunden, die nach Bougainville benannt wird: die <strong>Bougainvillea</strong>.",
+      plant: "bougainvillea"
+    },
+    {
+      id: "montevideo", label: "3", type: "sea", lat: -34.9, lon: -56.2,
+      title: "Montevideo (Río de la Plata)", when: "Juli–November 1767",
+      erlebt: "Die Schiffe bleiben monatelang hier, weil die Étoile repariert werden muss.",
+      leistung: "Zeit für viele Ausflüge: Commerson und Jeanne sammeln und pressen Pflanzen aus der Gegend."
+    },
+    {
+      id: "magellan", label: "4", type: "sea", lat: -53.82, lon: -71.07,
+      title: "Magellanstraße", when: "Dezember 1767 – Januar 1768",
+      erlebt: "Die Durchfahrt an der Südspitze Südamerikas dauert wochenlang. Es ist kalt, nass und stürmisch.",
+      leistung: "Jeanne klettert mit Commerson durch Schnee und über vereiste Berge und trägt Proviant, Waffen und die Pflanzenmappen. Commerson nennt sie deshalb „seine bête de somme“ (sein Lasttier).",
+      note: "Hier beobachtete Commerson auch einen Delfin, der heute nach ihm benannt ist: den Commerson-Delfin. Ende Januar 1768 erreichen die Schiffe den Pazifik."
+    },
+    {
+      id: "tahiti", label: "5", type: "sea", lat: -17.6, lon: -149.3,
+      title: "Tahiti", when: "April 1768",
+      erlebt: "Bougainville nennt die Insel „Nouvelle-Cythère“, ein Paradies. Laut seinem Bericht erkennen Tahitianer sofort, dass „Jean“ eine Frau ist. Jeanne gibt es danach beim Kapitän zu.",
+      leistung: "Sie behauptet, Commerson habe nichts gewusst – so schützt sie ihn vor Strafe.",
+      note: "Ob die Enttarnung wirklich so passiert ist, ist umstritten. Siehe Station 7."
+    },
+    {
+      id: "salomonen", label: "6", type: "sea", lat: -7.0, lon: W(156.7),
+      title: "Salomonen", when: "Juni 1768",
+      erlebt: "Die Schiffe segeln an den Salomonen vorbei, gehen aber kaum an Land. An Bord wird das Essen knapp, viele Männer hungern und werden krank.",
+      leistung: "Die größte Insel der Gegend trägt bis heute den Namen des Expeditionsleiters: Bougainville.",
+      note: "Manchmal liest man, Jeanne sei auf den Salomonen angegriffen worden. Die Quellen nennen dafür aber Neuirland (Station 7)."
+    },
+    {
+      id: "neuirland", label: "7", type: "sea", lat: -4.65, lon: W(152.7),
+      title: "Neuirland (heute Papua-Neuguinea)", when: "Juli 1768",
+      erlebt: "Laut dem Tagebuch des Schiffsarztes François Vivès wird Jeanne hier an Land von Männern der Expedition umzingelt und gewaltsam ausgezogen. Die Historikerin Glynis Ridley geht davon aus, dass sie dabei auch vergewaltigt wurde.",
+      leistung: "Trotz allem bleibt Jeanne bis Mauritius bei der Expedition.",
+      note: "Sensibles Thema: Was genau passiert ist, weiß man nicht sicher. Viele Historiker halten diese Version aber für glaubwürdiger als die Tahiti-Version."
+    },
+    {
+      id: "batavia", label: "8", type: "sea", lat: -6.13, lon: W(106.8),
+      title: "Batavia (heute Jakarta)", when: "September–Oktober 1768",
+      erlebt: "In der niederländischen Kolonie bekommen die erschöpften Seeleute endlich wieder genug zu essen. Viele sind krank.",
+      leistung: "Commerson und Jeanne kümmern sich weiter um die Sammlung, die inzwischen sehr groß ist."
+    },
+    {
+      id: "mauritius", label: "9", type: "stay", lat: -20.16, lon: W(57.5),
+      title: "Mauritius (damals Île de France)", when: "ab November 1768",
+      erlebt: "Hier verlassen Commerson und Jeanne die Expedition. Der Verwalter Pierre Poivre interessiert sich selbst sehr für Pflanzen und holt Commerson auf die Insel. Die Schiffe fahren ohne die beiden nach Frankreich zurück.",
+      leistung: "Jeanne und Commerson erforschen jahrelang die Pflanzenwelt der Insel. 1773 stirbt Commerson. Jeanne arbeitet danach in einer Kneipe in Port Louis und heiratet am 17. Mai 1774 den Soldaten Jean Dubernat.",
+      plant: "hortensie"
+    },
+    {
+      id: "madagaskar", label: "10", type: "stay", lat: -25.03, lon: W(46.98),
+      title: "Madagaskar (Fort-Dauphin)", when: "um 1770–1771",
+      erlebt: "Commerson unternimmt eine Forschungsreise nach Madagaskar. Jeanne begleitet ihn vermutlich.",
+      leistung: "Sie sammeln Pflanzen auf einer Insel, deren Natur in Europa fast unbekannt ist."
+    },
+    {
+      id: "reunion", label: "11", type: "stay", lat: -21.1, lon: W(55.5),
+      title: "La Réunion (damals Île Bourbon)", when: "um 1771–1772",
+      erlebt: "Commerson erforscht die Vulkaninsel, vermutlich wieder mit Jeanne.",
+      leistung: "Zusammen bringen sie auf den Inseln im Indischen Ozean tausende Pflanzenproben zusammen."
+    },
+    {
+      id: "ziel", label: "12", type: "home", lat: 45.2, lon: W(0.13),
+      title: "Rückkehr nach Frankreich – Saint-Aulaye", when: "um 1775 bis 1807",
+      erlebt: "Mit ihrem Mann segelt Jeanne zurück nach Frankreich. Damit hat sie als erste Frau die Welt umrundet! Die beiden leben in Saint-Aulaye (Dordogne).",
+      leistung: "1785 bekommt sie eine Rente von der Marine und wird darin „außergewöhnliche Frau“ genannt. Sie stirbt am 5. August 1807 mit 67 Jahren.",
+      note: "Auf welchem Schiff und in welchem Hafen sie ankam, ist nicht bekannt."
+    }
+  ];
+
+  // Linienpunkte (Stationen + Hilfspunkte, damit die Linie übers Meer läuft)
+  const routeMain = [
+    [45.94, -0.96], [10, -28], [-22.9, -43.2], [-28, -46], [-34.9, -56.2],
+    [-52.4, -68.4], [-53.82, -71.07], [-53.5, -72.5], [-52.7, -74.6],
+    [-17.6, -149.3], [-15.4, W(167.0)], [-15.3, W(146.5)], [-10.8, W(153.5)],
+    [-7.0, W(156.7)], [-4.65, W(152.7)], [-1.0, W(145)], [-0.6, W(135)],
+    [-2.5, W(130)], [-3.3, W(126.9)], [-5.5, W(120)], [-5.5, W(112)],
+    [-6.13, W(106.8)], [-6.2, W(105.8)], [-10, W(105)], [-20.16, W(57.5)]
+  ];
+  const routeIslands = [[-20.16, W(57.5)], [-25.03, W(46.98)], [-21.1, W(55.5)], [-20.16, W(57.5)]];
+  const routeReturn = [
+    [-20.16, W(57.5)], [-28, W(48)], [-35.5, W(20.5)], [-34.4, W(18.4)],
+    [-15.9, W(-5.7)], [5, W(-15)], [35, W(-12)], [45.2, W(0.13)]
+  ];
+
+  const plants = [
+    {
+      id: "bougainvillea", name: "Bougainvillea", latin: "Bougainvillea spectabilis",
+      color: "#9b2f8f", lat: -22.6, lon: -44.4, place: "bei Rio de Janeiro, 1767",
+      family: "Wunderblumengewächse", origin: "Südamerika",
+      text: "Die berühmteste Pflanze der Reise. Commerson benannte sie nach dem Expeditionsleiter Bougainville. Wer sie tatsächlich gefunden hat, weiß man nicht genau – wahrscheinlich hat Jeanne sie gesammelt, weil Commerson wegen seines Beins kaum laufen konnte.",
+      fact: "Das Leuchtend-Lila sind gar keine Blütenblätter, sondern Hochblätter. Die echten Blüten sind klein und weißlich und sitzen in der Mitte."
+    },
+    {
+      id: "hortensie", name: "Hortensie", latin: "Hydrangea macrophylla",
+      color: "#4b6cb7", lat: -20.6, lon: W(57.0), place: "Gärten auf Mauritius / Réunion",
+      family: "Hortensiengewächse", origin: "Ostasien (Japan, China)",
+      text: "Commerson sah diese Pflanze in Gärten auf den Inseln im Indischen Ozean und nannte sie „Hortensia“. Daher kommt unser deutsches Wort „Hortensie“.",
+      fact: "Bei manchen Hortensien hängt die Blütenfarbe vom Boden ab: In saurem Boden werden sie eher blau, in kalkhaltigem eher rosa."
+    },
+    {
+      id: "baretia", name: "Baretia", latin: "heute: Turraea (Mahagonigewächse)",
+      color: "#8a4b2a", lat: null, lon: null, place: "Inseln im Indischen Ozean",
+      family: "Mahagonigewächse", origin: "Afrika, Madagaskar, Inseln im Indischen Ozean",
+      text: "Commerson wollte eine Pflanzengattung nach Jeanne benennen: Baretia. Später stellte sich heraus, dass diese Pflanzen schon einen Namen hatten (Turraea). Deshalb ist der Name Baretia verschwunden.",
+      fact: "Lange gab es dadurch keine einzige Pflanze, die nach Jeanne Baret benannt war – über 200 Jahre lang."
+    },
+    {
+      id: "solanum", name: "Solanum baretiae", latin: "Solanum baretiae",
+      color: "#5b3a9b", lat: -4.0, lon: -79.2, place: "Anden in Südecuador und Nordperu (heutiger Fundort)",
+      family: "Nachtschattengewächse (wie Kartoffel und Tomate)", origin: "Ecuador, Peru – 1900 bis 3000 m Höhe",
+      text: "2012 beschrieb der US-Botaniker Eric Tepe diese neue Art und benannte sie nach Jeanne Baret. Damit gibt es endlich eine Pflanze mit ihrem Namen.",
+      fact: "Die Blüten sind fünfeckig und können violett, gelb oder weiß sein. Die Blätter sind mal einfach, mal in bis zu sieben Teile geteilt."
+    }
+  ];
+
+  const docs = [
+    {
+      src: "Louis-Antoine de Bougainville · Reisebericht, 1771",
+      title: "„Dieser unermüdliche Baré“",
+      quote: "Seit einiger Zeit ging auf beiden Schiffen das Gerücht um, Herrn de Commersons Diener Baré sei eine Frau. […] Doch wie sollte man eine Frau erkennen in diesem unermüdlichen Baré, einem schon geübten Botaniker, den wir seinem Herrn bei allen Pflanzenausflügen folgen sahen – durch Schnee und über die vereisten Berge der Magellanstraße –, mit einem Mut und einer Kraft, die ihm beim Naturforscher den Beinamen „sein Lasttier“ (franz. <em>bête de somme</em>) eingebracht hatten?",
+      hint: "Gekürzt und sinngemäß übersetzt aus „Voyage autour du monde“. Bougainville verlegt die Enttarnung nach Tahiti.",
+      links: [["Originalseite (franz.) im Mariners' Museum", "https://exploration.marinersmuseum.org/?p=2038"], ["Englische Fassung von 1772", "https://exploration.marinersmuseum.org/?p=2039"]],
+      station: "tahiti"
+    },
+    {
+      src: "Louis-Antoine de Bougainville · Reisebericht, 1771",
+      title: "„Die erste Frau“",
+      quote: "Sie wird die erste Frau sein, die die Reise um die Welt gemacht hat. […] Ich muss ihr zugestehen, dass sie sich an Bord stets anständig verhalten hat.",
+      hint: "Sinngemäße Übersetzung. Bougainville hatte recht – aber anders als gedacht: Jeanne kam erst um 1775 zurück, sechs Jahre nach ihm.",
+      links: [["Artikel des Australian National Maritime Museum", "https://www.sea.museum/2015/11/10/she-will-be-the-first-woman-that-has-ever-made-it"]],
+      station: "tahiti"
+    },
+    {
+      src: "François Vivès · Tagebuch des Schiffsarztes der Étoile",
+      title: "Die andere Version",
+      quote: null,
+      text: "Vivès war mit Commerson verfeindet und schrieb viel über „Jean“. Laut ihm vermuteten einige Männer schon früh auf der Reise, dass „Jean“ eine Frau war. Als der Kapitän nachfragte, behauptete Jeanne, ein Eunuch zu sein. Vivès beschreibt außerdem einen Überfall auf Jeanne auf Neuirland im Juli 1768.",
+      hint: "Das Tagebuch wurde lange kaum beachtet. Die Historikerin Glynis Ridley stützt ihre Biografie (2010) stark darauf.",
+      links: [["Zusammenfassung bei Scientific Women", "https://scientificwomen.net/women/baret-jeanne-155"]],
+      station: "neuirland"
+    },
+    {
+      src: "Marineministerium · Rentenurkunde, 1785",
+      title: "„Diese außergewöhnliche Frau“",
+      quote: "Seine Exzellenz hat die Güte gehabt, dieser außergewöhnlichen Frau eine Pension von zweihundert Livres im Jahr zu gewähren, zu zahlen aus dem Fonds für invalide Soldaten, und diese Pension ist ab dem 1. Januar 1785 zu zahlen.",
+      hint: "Übersetzt nach der englischen Wiedergabe der Urkunde. Im Original steht „femme extraordinaire“.",
+      links: [["Text der Urkunde (engl.) im Old Salt Blog", "https://oldsaltblog.com/jeanne-baret-the-first-woman-to-circumnavigate-the-globe/"]],
+      station: "ziel"
+    },
+    {
+      src: "Originalkarten",
+      title: "Die Route auf alten Karten",
+      quote: null,
+      text: "Bougainvilles Reisebericht von 1771 enthält eine große Weltkarte mit dem Weg der Schiffe <em>Boudeuse</em> und <em>Étoile</em> („Développement de la route des vaisseaux du Roy …“). Auch italienische Weltkarten aus dieser Zeit zeigen die Routen von Bougainville und James Cook.",
+      hint: "Tipp für den Unterricht: Vergleicht die alte Karte mit der modernen Karte oben. Was ist gleich, was fehlt?",
+      links: [["Reisebericht mit Karten (Library of Congress)", "https://www.loc.gov/item/05034862/"], ["Italienische Weltkarte im Mariners' Museum", "https://exploration.marinersmuseum.org/subject/jeanne-baret/msm-1-0730-2/"]],
+      station: null
+    }
+  ];
+
+  /* ---------------- Karte ---------------- */
+  const map = L.map("map", { worldCopyJump: false, minZoom: 1, maxZoom: 10, zoomSnap: 0.5 });
+
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende'
+  }).addTo(map);
+  L.control.scale({ imperial: false }).addTo(map);
+
+  const routeLayer = L.layerGroup([
+    L.polyline(routeMain, { color: COLORS.sea, weight: 3, opacity: .85 }),
+    L.polyline(routeIslands, { color: COLORS.stay, weight: 3, opacity: .85, dashArray: "2 7" }),
+    L.polyline(routeReturn, { color: COLORS.home, weight: 3, opacity: .85, dashArray: "8 8" })
+  ]).addTo(map);
+
+  function popupOpts() {
+    const small = window.innerWidth < 600;
+    return {
+      maxWidth: small ? Math.min(280, window.innerWidth - 70) : 320,
+      minWidth: small ? 200 : 240,
+      maxHeight: small ? Math.round(window.innerHeight * 0.42) : null,
+      autoPanPadding: [20, 20]
+    };
+  }
+
+  function popupHtml(s) {
+    let h = '<div class="pop"><h4>' + s.title + '</h4><div class="when">' + s.when + '</div>';
+    h += '<div class="lbl">Was Jeanne hier erlebte</div><p>' + s.erlebt + '</p>';
+    h += '<div class="lbl">Was sie geleistet hat</div><p>' + s.leistung + '</p>';
+    if (s.note) h += '<div class="note">' + s.note + '</div>';
+    if (s.plant) h += '<a class="go" href="#plant-' + s.plant + '">→ Zum Pflanzen-Steckbrief</a>';
+    return h + '</div>';
+  }
+
+  const stationLayer = L.layerGroup().addTo(map);
+  const homeLayer = L.layerGroup().addTo(map);
+  const markers = {};
+
+  stations.forEach(function (s, i) {
+    const icon = L.divIcon({
+      className: "", iconSize: [30, 30], iconAnchor: [15, 15], popupAnchor: [0, -14],
+      html: '<div class="pin ' + s.type + '" data-id="' + s.id + '">' + s.label + '</div>'
+    });
+    const m = L.marker([s.lat, s.lon], { icon: icon, title: s.label + ": " + s.title, riseOnHover: true })
+      .bindPopup(popupHtml(s), popupOpts());
+    m.on("click", function () { setActive(i, false); });
+    (s.id === "comelle" || s.id === "paris" ? homeLayer : stationLayer).addLayer(m);
+    markers[s.id] = m;
+  });
+
+  const leafSvg = '<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M12 2c3 3 4 6 4 9a4 4 0 0 1-8 0c0-3 1-6 4-9zm-1 13h2v7h-2z"/></svg>';
+  const plantLayer = L.layerGroup().addTo(map);
+  const plantMarkers = {};
+  plants.forEach(function (p) {
+    if (p.lat === null) return;
+    const icon = L.divIcon({ className: "", iconSize: [28, 28], iconAnchor: [14, 28], popupAnchor: [0, -26],
+      html: '<div class="plant-pin">' + leafSvg + '</div>' });
+    const m = L.marker([p.lat, p.lon], { icon: icon, title: "Pflanze: " + p.name })
+      .bindPopup('<div class="pop"><h4>' + p.name + '</h4><div class="when"><em>' + p.latin + '</em> · ' + p.place + '</div><p>' + p.fact + '</p><a class="go" href="#plant-' + p.id + '">→ Zum Steckbrief</a></div>', { maxWidth: 280 });
+    plantLayer.addLayer(m);
+    plantMarkers[p.id] = m;
+  });
+
+  L.control.layers(null, {
+    "Reiseroute": routeLayer,
+    "Stationen": stationLayer,
+    "Vorgeschichte (Burgund, Paris)": homeLayer,
+    "Pflanzen-Fundorte": plantLayer
+  }, { collapsed: true }).addTo(map);
+
+  const legend = L.control({ position: "bottomleft" });
+  legend.onAdd = function () {
+    const d = L.DomUtil.create("div", "legend");
+    d.innerHTML =
+      '<div><i style="background:' + COLORS.sea + '"></i>Mit der Expedition (1767–1768)</div>' +
+      '<div><i style="background:' + COLORS.stay + '"></i>Forschungsjahre (1768–1774)</div>' +
+      '<div><i style="background:' + COLORS.home + '"></i>Frankreich (davor &amp; danach)</div>' +
+      '<div><i style="background:#7b3f8c"></i>Pflanzen-Fundort</div>';
+    L.DomEvent.disableClickPropagation(d);
+    return d;
+  };
+  legend.addTo(map);
+
+  const allBounds = L.latLngBounds(routeMain.concat(routeReturn));
+  map.fitBounds(allBounds, { padding: [20, 20] });
+
+  /* ---------------- Stationsliste & Navigation ---------------- */
+  const list = document.getElementById("stationList");
+  stations.forEach(function (s, i) {
+    const li = document.createElement("li");
+    const b = document.createElement("button");
+    b.type = "button";
+    b.innerHTML = '<span class="num" style="background:' + COLORS[s.type] + '">' + s.label + '</span>' +
+      '<span><span class="t">' + s.title + '</span><span class="d">' + s.when + '</span></span>';
+    b.addEventListener("click", function () { stopPlay(); setActive(i, true); });
+    li.appendChild(b);
+    list.appendChild(li);
+  });
+
+  let current = -1;
+  function setActive(i, fly) {
+    current = i;
+    const s = stations[i];
+    list.querySelectorAll("button").forEach(function (b, j) {
+      b.setAttribute("aria-current", j === i ? "true" : "false");
+      if (j === i) b.scrollIntoView({ block: "nearest" });
+    });
+    document.querySelectorAll(".pin").forEach(function (p) {
+      p.classList.toggle("active", p.getAttribute("data-id") === s.id);
+    });
+    if (!fly) return;
+    const m = markers[s.id];
+    const group = s.id === "comelle" || s.id === "paris" ? homeLayer : stationLayer;
+    if (!map.hasLayer(group)) map.addLayer(group);
+    flyAndOpen(m, Math.max(map.getZoom(), 4));
+  }
+
+  // Fliegt zu einem Marker und öffnet danach sein Infofenster.
+  // Nur ein Flug gleichzeitig, damit sich schnelle Klicks nicht stören.
+  let pendingOpen = null;
+  let pendingTimer = null;
+  function flyAndOpen(marker, zoom) {
+    if (pendingOpen) { map.off("moveend", pendingOpen); pendingOpen = null; }
+    if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
+    map.closePopup();
+    const target = marker.getLatLng();
+    const open = function () {
+      pendingTimer = setTimeout(function () {
+        pendingTimer = null;
+        if (marker._map) marker.openPopup();
+      }, 60);
+    };
+    if (map.getCenter().distanceTo(target) < 1000 && map.getZoom() === zoom) { open(); return; }
+    pendingOpen = function () { pendingOpen = null; open(); };
+    map.once("moveend", pendingOpen);
+    map.flyTo(target, zoom, { duration: 1.2 });
+  }
+
+  document.getElementById("next").addEventListener("click", function () {
+    stopPlay(); setActive((current + 1) % stations.length, true);
+  });
+  document.getElementById("prev").addEventListener("click", function () {
+    stopPlay(); setActive((current - 1 + stations.length) % stations.length, true);
+  });
+
+  let timer = null;
+  const playBtn = document.getElementById("play");
+  function stopPlay() {
+    if (timer) { clearInterval(timer); timer = null; }
+    playBtn.textContent = "▶ Reise abspielen";
+  }
+  playBtn.addEventListener("click", function () {
+    if (timer) { stopPlay(); return; }
+    playBtn.textContent = "■ Stopp";
+    if (current < 0 || current >= stations.length - 1) current = -1;
+    setActive(current + 1, true);
+    timer = setInterval(function () {
+      if (current >= stations.length - 1) { stopPlay(); return; }
+      setActive(current + 1, true);
+    }, 6000);
+  });
+  map.on("dragstart", stopPlay);
+
+  /* ---------------- Pflanzen-Steckbriefe ---------------- */
+  const flower = function (c) {
+    return '<svg width="64" height="64" viewBox="0 0 64 64" aria-hidden="true">' +
+      [0, 72, 144, 216, 288].map(function (r) {
+        return '<ellipse cx="32" cy="16" rx="10" ry="15" fill="' + c + '" opacity=".85" transform="rotate(' + r + ' 32 32)"/>';
+      }).join("") + '<circle cx="32" cy="32" r="6" fill="#f3e9c6"/></svg>';
+  };
+  const grid = document.getElementById("plantGrid");
+  plants.forEach(function (p) {
+    const c = document.createElement("article");
+    c.className = "card";
+    c.id = "plant-" + p.id;
+    c.innerHTML =
+      '<div class="swatch" style="background:' + p.color + '22">' + flower(p.color) + '</div>' +
+      '<div class="body"><h3>' + p.name + '</h3><p class="latin">' + p.latin + '</p>' +
+      '<dl><dt>Familie</dt><dd>' + p.family + '</dd><dt>Herkunft</dt><dd>' + p.origin + '</dd><dt>Fundort</dt><dd>' + p.place + '</dd></dl>' +
+      '<p>' + p.text + '</p><p><strong>Wusstest du?</strong> ' + p.fact + '</p></div>';
+    if (plantMarkers[p.id]) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = "Auf der Karte zeigen";
+      b.addEventListener("click", function () {
+        stopPlay();
+        if (!map.hasLayer(plantLayer)) map.addLayer(plantLayer);
+        document.getElementById("route").scrollIntoView();
+        flyAndOpen(plantMarkers[p.id], 5);
+      });
+      c.querySelector(".body").appendChild(b);
+    }
+    grid.appendChild(c);
+  });
+
+  /* ---------------- Dokumente ---------------- */
+  const dg = document.getElementById("docGrid");
+  docs.forEach(function (d) {
+    const el = document.createElement("article");
+    el.className = "doc";
+    let h = '<div class="src">' + d.src + '</div><h3>' + d.title + '</h3>';
+    if (d.quote) h += '<blockquote>' + d.quote + '</blockquote>';
+    if (d.text) h += '<p>' + d.text + '</p>';
+    h += '<p class="hint">' + d.hint + '</p>';
+    h += '<p>' + d.links.map(function (l) {
+      return '<a href="' + l[1] + '" target="_blank" rel="noopener">' + l[0] + '</a>';
+    }).join(" · ") + '</p>';
+    el.innerHTML = h;
+    if (d.station) {
+      const idx = stations.findIndex(function (s) { return s.id === d.station; });
+      const a = document.createElement("a");
+      a.href = "#route";
+      a.textContent = "→ Ort auf der Karte zeigen";
+      a.addEventListener("click", function () { stopPlay(); setActive(idx, true); });
+      el.appendChild(a);
+    }
+    dg.appendChild(el);
+  });
+})();
+</script>
+</body>
+</html>
